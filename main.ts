@@ -1,6 +1,7 @@
 import { readFileSync, mkdirSync, copyFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { createHash } from 'node:crypto';
 
 const MAX_BYTES = 1_048_576;
 const MAX_EDGE = 1024;
@@ -44,6 +45,11 @@ function dimensions(data: Buffer): { width: number; height: number } {
 }
 
 function main(): void {
+  const args = process.argv.slice(2);
+  if (args.length > 1 || (args.length === 1 && args[0] !== '--check-only')) {
+    throw new Error('Usage: node main.ts [--check-only]');
+  }
+  const checkOnly = args[0] === '--check-only';
   const source = join(dirname(fileURLToPath(import.meta.url)), 'entry.png');
   const data = readFileSync(source);
   if (data.length > MAX_BYTES) {
@@ -53,11 +59,21 @@ function main(): void {
   if (width < 1 || height < 1 || width > MAX_EDGE || height > MAX_EDGE) {
     throw new Error(`Invalid image dimensions ${width}x${height}; allowed range is 1..${MAX_EDGE}`);
   }
+  if (checkOnly) {
+    console.log(`OK entry.png: ${data.length} bytes, ${width}x${height}`);
+    return;
+  }
   const outputDirectory = resolve(process.env.MAKEFUN_OUTPUT_DIR || '/output');
   const destination = join(outputDirectory, 'entry.png');
   mkdirSync(outputDirectory, { recursive: true });
   copyFileSync(source, destination);
+  const sourceHash = createHash('sha256').update(data).digest('hex');
+  const outputHash = createHash('sha256').update(readFileSync(destination)).digest('hex');
+  if (sourceHash !== outputHash) {
+    throw new Error(`Copy verification failed: source SHA-256 ${sourceHash}, output SHA-256 ${outputHash}`);
+  }
   console.log(`entry.png: ${data.length} bytes, ${width}x${height} -> ${destination}`);
+  console.log(`SHA-256 source=${sourceHash} output=${outputHash}`);
 }
 
 try {
